@@ -34,9 +34,14 @@ export default function Sidebar({ activeId }) {
         })}
       </nav>
 
+      {/* The Figma Notes frame shows only the divider here; AI and Canvas show text. */}
       <div className="sidebar-footer">
-        <div className="caption">Notes save in this browser.</div>
-        <div className="caption">AI and Canvas are not connected.</div>
+        {activeId !== 'notes' && (
+          <>
+            <div className="caption">Notes save in this browser.</div>
+            <div className="caption">AI and Canvas are not connected.</div>
+          </>
+        )}
       </div>
     </aside>
   );

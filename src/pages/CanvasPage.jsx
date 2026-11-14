@@ -63,7 +63,7 @@ export default function CanvasPage({ assignments = demoAssignments }) {
       <div className="canvas-layout">
         <section className="panel calendar-panel">
           <h2 className="section-title">Monthly Calendar</h2>
-          <p className="caption calendar-subtitle">Select a date to find its assignments</p>
+          <p className="caption calendar-subtitle">Future layout concept</p>
 
           <div className="calendar-header">
             <h3 className="calendar-month" aria-live="polite">

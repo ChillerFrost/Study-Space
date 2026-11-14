@@ -68,7 +68,7 @@ button:disabled {
 /* Shared text */
 .label {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 24px;
 }
@@ -92,6 +92,16 @@ button:disabled {
   line-height: 24px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Application shell */
 .shell {
   display: grid;
@@ -112,7 +122,7 @@ button:disabled {
 
 .sidebar-brand {
   flex: none;
-  height: 112px;
+  height: 113px;
   padding: 20px 8px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -134,11 +144,11 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 24px;
+  padding-top: 23px;
 }
 
 .sidebar-nav-label {
-  padding: 0 8px 7px;
+  padding: 0 8px 8px;
 }
 
 .nav-item {
@@ -173,8 +183,12 @@ button:disabled {
 
 .sidebar-footer {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 168px;
   margin-top: auto;
-  padding: 24px 8px 32px;
+  padding: 0 8px 32px;
   border-top: 1px solid var(--border);
 }
 
@@ -194,7 +208,7 @@ button:disabled {
 .breadcrumb {
   display: flex;
   flex: 0 1 600px;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
   color: var(--text-secondary);
 }
@@ -230,23 +244,24 @@ button:disabled {
 
 .page-tag {
   flex: none;
-  width: 167px;
+  width: 168px;
   margin-top: 8px;
   color: var(--text-secondary);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  padding: 24px;
+  padding: 23px;
 }
 
 .banner {
   min-height: 80px;
   margin-top: 24px;
-  padding: 12px 24px;
+  padding: 11px 23px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--selected);
@@ -270,10 +285,15 @@ button:disabled {
   display: block;
   width: 248px;
   height: 44px;
-  padding: 0 16px;
+  padding: 0 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-small);
+  font-weight: 500;
   text-align: left;
+}
+
+.button-pill {
+  border-radius: 22px;
 }
 
 .button-primary {
@@ -319,7 +339,7 @@ button:disabled {
   display: block;
   width: 100%;
   height: 100%;
-  padding: 8px 16px 48px;
+  padding: 9px 15px 48px;
   border: 0;
   border-radius: inherit;
   outline: 0;
@@ -327,144 +347,246 @@ button:disabled {
   resize: none;
 }
 
-.text-box-input::placeholder,
-.notes-title-input::placeholder {
+.text-box-input::placeholder {
   color: var(--text-secondary);
+  font-weight: 500;
   opacity: 1;
 }
 
 .text-box-hint {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
+  right: 15px;
+  bottom: 23px;
+  left: 15px;
   pointer-events: none;
 }
 
-/* Notes */
-.notes-layout {
-  display: grid;
-  grid-template-columns: 288px minmax(0, 1fr);
-  gap: 24px;
+/* Notes: split-pane workspace (explorer · divider · editor) */
+.notes-split {
+  display: flex;
   height: 600px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.notes-list-panel {
+.notes-explorer {
+  flex: none;
   display: flex;
   flex-direction: column;
+  width: var(--explorer-width);
   min-height: 0;
-  padding: 24px 0;
+  padding: 15px 15px 19px;
 }
 
-.notes-list-panel > .section-title,
-.notes-list-panel > .caption {
-  padding: 0 24px;
-}
-
-.notes-list-panel .notes-new {
+.notes-explorer .notes-new {
   flex: none;
-  width: calc(100% - 48px);
-  margin: 24px 24px 0;
+  width: 100%;
+  margin-top: 12px;
 }
 
-.notes-count {
+.notes-search {
   flex: none;
-  margin: 12px 0 15px;
+  width: 100%;
+  height: 40px;
+  margin-top: 12px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--background);
+  font-size: 13px;
+}
+
+.notes-search::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.notes-recent-label {
+  flex: none;
+  margin-top: 20px;
 }
 
 .notes-list {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
-  padding: 8px 16px;
+  margin: 10px -2px 0;
+  padding: 2px;
   overflow-y: auto;
 }
 
-.notes-item,
+.notes-card,
 .notes-empty {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
   width: 100%;
   min-height: 88px;
-  padding: 8px 16px;
+  padding: 11px 15px 15px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius);
   background: var(--background);
   color: var(--text-secondary);
   text-align: left;
 }
 
-.notes-item.is-selected {
+.notes-card.is-selected {
+  border-color: var(--primary);
   background: var(--selected);
 }
 
-.notes-item.is-selected .notes-item-title {
-  color: var(--primary);
-}
-
-.notes-item-title {
+.notes-card-title {
+  max-width: 100%;
+  overflow: hidden;
   font-weight: 500;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
 }
 
-.notes-item-preview {
+.notes-card.is-selected .notes-card-title {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.notes-card-meta {
+  max-width: 100%;
+  margin-top: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
 }
 
 .notes-list-footer {
   flex: none;
-  margin-top: 8px;
+  margin-top: 12px;
+}
+
+.split-divider {
+  position: relative;
+  flex: none;
+  width: 16px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.split-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+}
+
+.split-divider-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--background);
+}
+
+/* Six 1.5px grip dots: two columns 3px apart, three rows 6px apart. */
+.split-divider-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4.5px;
+  height: 13.5px;
+  transform: translate(-50%, -50%);
+  background-image: radial-gradient(circle at 0.75px 0.75px, var(--text-secondary) 0.75px, transparent 0.8px);
+  background-size: 3px 6px;
 }
 
 .notes-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  padding: 15px 24px 8px;
+  overflow-y: auto;
+}
+
+.notes-editor-toolbar {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .notes-title-input {
-  display: block;
-  width: 100%;
-  height: 32px;
-  margin-top: 20px;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font-size: 24px;
-  font-weight: 500;
-  line-height: 32px;
+  flex: 0 1 188px;
+  min-width: 96px;
+  height: 44px;
+  margin-right: 8px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  font-size: 20px;
+  font-weight: 600;
 }
 
-.notes-title-input:focus-visible {
-  box-shadow: 0 1px 0 var(--primary);
+.notes-editor-toolbar > .button,
+.notes-editor-toolbar .export-menu-anchor {
+  flex: 0 1 248px;
+  min-width: 0;
+}
+
+.notes-editor-toolbar .button {
+  width: 100%;
+}
+
+.notes-content {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  margin-top: 24px;
+  padding: 23px 27px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--surface);
+  resize: none;
+}
+
+/* Figma shows the editing viewport in its focused state. */
+.notes-content:focus {
+  border-color: var(--primary);
+}
+
+.notes-content:disabled {
+  background: var(--background);
+}
+
+.notes-title-input::placeholder,
+.notes-content::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 .notes-save-status {
-  margin-top: 11px;
+  flex: none;
+  margin-top: 16px;
 }
 
 .notes-save-status.is-error {
   color: var(--error);
 }
 
-.notes-content-box {
-  height: 270px;
-  margin-top: 24px;
-}
-
-.notes-actions {
-  display: flex;
-  gap: 16px;
-  margin-top: 32px;
+.notes-export-hint {
+  flex: none;
 }
 
 .export-menu-anchor {
@@ -496,10 +618,6 @@ button:disabled {
 
 .export-menu button:hover {
   background: var(--selected);
-}
-
-.notes-export-hint {
-  margin-top: 28px;
 }
 
 /* AI Study Tools */
@@ -573,17 +691,22 @@ button:disabled {
 }
 
 .ai-format {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   height: 40px;
-  padding: 0 12px 0 16px;
+  padding: 0 15px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius);
   background: var(--background);
   color: var(--text-secondary);
+  font-weight: 500;
   cursor: pointer;
+}
+
+.ai-format:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 .ai-format.is-selected {
@@ -591,19 +714,10 @@ button:disabled {
   color: var(--primary);
 }
 
-.ai-format input {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--primary);
-  cursor: pointer;
-}
-
 .results-panel {
   flex: 1;
   min-height: 120px;
-  padding: 16px 24px;
+  padding: 14px 23px;
   background: var(--background);
 }
 
@@ -652,7 +766,6 @@ button:disabled {
 
 .calendar-subtitle {
   margin-top: 8px;
-  line-height: 20px;
 }
 
 .calendar-header {
@@ -660,7 +773,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  margin-top: 24px;
+  margin-top: 20px;
 }
 
 .calendar-month {
@@ -699,9 +812,10 @@ button:disabled {
 }
 
 .calendar-weekdays {
-  margin-top: 19px;
+  margin-top: 20px;
   color: var(--text-secondary);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .calendar-grid {
@@ -715,9 +829,9 @@ button:disabled {
   flex-direction: column;
   align-items: flex-start;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 7px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius);
   background: var(--background);
   color: var(--text-secondary);
   font-size: 12px;
@@ -742,7 +856,8 @@ button:disabled {
   max-width: 100%;
   margin-top: 4px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -792,13 +907,14 @@ button:disabled {
 }
 
 .assignment-course {
-  margin-top: 5px;
+  margin-top: 4px;
 }
 
 .assignment-title {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 16px;
   font-weight: 600;
+  line-height: 28px;
 }
 
 .assignment-due {
@@ -807,15 +923,10 @@ button:disabled {
 
 /* Narrower screens: stack panels; the 1360px desktop layout above is unchanged. */
 @media (max-width: 1240px) {
-  .notes-layout,
   .ai-layout,
   .canvas-layout {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
-  }
-
-  .notes-list {
-    max-height: 320px;
   }
 
   .agenda-list {
@@ -825,6 +936,31 @@ button:disabled {
   .ai-quiz-panel,
   .ai-summary-panel {
     height: auto;
+  }
+}
+
+@media (max-width: 1040px) {
+  .notes-split {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .notes-explorer {
+    width: auto;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .notes-list {
+    max-height: 320px;
+  }
+
+  .split-divider {
+    display: none;
+  }
+
+  .notes-content {
+    flex: none;
+    height: 320px;
   }
 }
 
@@ -865,12 +1001,25 @@ button:disabled {
     padding-left: 16px;
   }
 
-  .notes-list-panel {
-    padding-right: 0;
-    padding-left: 0;
+  .notes-editor {
+    padding-right: 16px;
+    padding-left: 16px;
   }
 
-  .notes-actions,
+  .notes-editor-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .notes-title-input {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
+
+  .notes-editor-toolbar > .button,
+  .notes-editor-toolbar .export-menu-anchor {
+    flex: 1 1 0;
+  }
+
   .button-row {
     flex-direction: column;
     align-items: stretch;

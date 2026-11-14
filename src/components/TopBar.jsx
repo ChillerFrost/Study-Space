@@ -1,4 +1,7 @@
 export default function TopBar({ section }) {
+  // The Figma Notes frame has no route label in its top bar; AI and Canvas do.
+  const showRoute = section.id !== 'notes';
+
   return (
     <header className="topbar">
       <nav className="breadcrumb" aria-label="Breadcrumb">
@@ -6,7 +9,7 @@ export default function TopBar({ section }) {
         <span aria-hidden="true">/</span>
         <span aria-current="page">{section.label}</span>
       </nav>
-      <div className="topbar-route">Current route: {section.hash}</div>
+      {showRoute && <div className="topbar-route">Current route: {section.hash}</div>}
     </header>
   );
 }
