@@ -7,15 +7,19 @@ import CanvasPage from './pages/CanvasPage.jsx';
 
 const DEFAULT_SECTION = SECTIONS[0];
 
-// Reads the current hash. A missing or unknown hash is rewritten to the
-// default route in place (replaceState), so it never leaves a dead entry
-// in the browser history and Back/Forward keep working.
+// Reads the current hash. Shorthand (#notes) is rewritten to its canonical
+// route (#/notes); a missing or unknown hash is rewritten to the default.
+// Both use replaceState, so no dead entry is left in the browser history
+// and Back/Forward keep working.
 function resolveSection() {
-  const match = SECTIONS.find((section) => section.hash === window.location.hash);
+  const { hash } = window.location;
+  const match = SECTIONS.find((section) => section.hash === hash);
   if (match) return match;
 
-  window.history.replaceState(null, '', DEFAULT_SECTION.hash);
-  return DEFAULT_SECTION;
+  const shorthand = SECTIONS.find((section) => section.hash.replace('#/', '#') === hash);
+  const target = shorthand ?? DEFAULT_SECTION;
+  window.history.replaceState(null, '', target.hash);
+  return target;
 }
 
 export default function App() {

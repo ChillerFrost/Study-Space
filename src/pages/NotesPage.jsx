@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import PageHeader from '../components/PageHeader.jsx';
+import SplitDivider from '../components/SplitDivider.jsx';
 import { exportNoteAsDocx, exportNoteAsPdf } from '../lib/exportNote.js';
 import { loadNotes, writeNotes } from '../lib/notesStorage.js';
 
 const SAVE_ERROR = 'Could not save. Browser storage is blocked or full.';
 const EXPORT_HINT = 'Export formats: PDF / DOCX. Files download to this device.';
+
+// Split-pane limits from the Figma design notes.
+const EXPLORER_DEFAULT = 280;
+const EXPLORER_MIN = 240;
+const EXPLORER_MAX = 400;
+const EDITOR_MIN = 480;
+const DIVIDER_WIDTH = 16;
 
 function formatSavedAt(timestamp) {
   return new Date(timestamp).toLocaleString('en-US', {
@@ -15,30 +23,65 @@ function formatSavedAt(timestamp) {
   });
 }
 
-function previewOf(note) {
-  return note.content.trim().split('\n')[0] || 'No content yet';
+// Card timestamp in the Figma style: "Today, 10:42 AM".
+function formatCardTime(timestamp) {
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return `Today, ${time}`;
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`;
+  return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
+function matchesSearch(note, query) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return note.title.toLowerCase().includes(needle) || note.content.toLowerCase().includes(needle);
 }
 
 export default function NotesPage() {
   const [notes, setNotes] = useState(loadNotes);
   const [savedNotes, setSavedNotes] = useState(notes);
   const [selectedId, setSelectedId] = useState(notes[0]?.id ?? null);
+  const [query, setQuery] = useState('');
   const [saveFailed, setSaveFailed] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState(EXPORT_HINT);
+  const [explorerWidth, setExplorerWidth] = useState(EXPLORER_DEFAULT);
+  const [explorerMax, setExplorerMax] = useState(EXPLORER_MAX);
+  const splitRef = useRef(null);
   const titleInputRef = useRef(null);
   const exportRef = useRef(null);
   const focusTitleOnCreate = useRef(false);
 
   const selected = notes.find((note) => note.id === selectedId) ?? null;
   const savedById = new Map(savedNotes.map((note) => [note.id, note]));
+  const visibleNotes = notes.filter((note) => matchesSearch(note, query));
 
   const isDirty = (note) => {
     const saved = savedById.get(note.id);
     return !saved || saved.title !== note.title || saved.content !== note.content;
   };
   const hasUnsavedNotes = notes.some(isDirty);
+
+  // Keep the editor at least EDITOR_MIN wide as the window resizes.
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      const room = entry.contentRect.width - DIVIDER_WIDTH - EDITOR_MIN;
+      setExplorerMax(Math.max(EXPLORER_MIN, Math.min(EXPLORER_MAX, room)));
+    });
+    observer.observe(splitRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const shownExplorerWidth = Math.min(Math.max(explorerWidth, EXPLORER_MIN), explorerMax);
+  const resizeExplorer = (width) => {
+    setExplorerWidth(Math.min(Math.max(Math.round(width), EXPLORER_MIN), explorerMax));
+  };
 
   useEffect(() => {
     if (!hasUnsavedNotes) return undefined;
@@ -92,6 +135,7 @@ export default function NotesPage() {
     const next = [note, ...notes];
     setNotes(next);
     persist(next, note.id);
+    setQuery('');
     focusTitleOnCreate.current = true;
     setSelectedId(note.id);
     setExportMenuOpen(false);
@@ -135,6 +179,34 @@ export default function NotesPage() {
     else saveStatus = `Saved in this browser · ${formatSavedAt(selected.updatedAt)}`;
   }
 
+  let listContent;
+  if (notes.length === 0) {
+    listContent = (
+      <div className="notes-empty">
+        <div className="notes-card-title">No notes yet</div>
+        <div className="caption">Select New Note to create your first one.</div>
+      </div>
+    );
+  } else if (visibleNotes.length === 0) {
+    listContent = <p className="caption">No notes match your search.</p>;
+  } else {
+    listContent = visibleNotes.map((note) => (
+      <button
+        type="button"
+        key={note.id}
+        className={note.id === selectedId ? 'notes-card is-selected' : 'notes-card'}
+        aria-current={note.id === selectedId ? 'true' : undefined}
+        onClick={() => selectNote(note.id)}
+      >
+        <span className="notes-card-title">{note.title.trim() || 'Untitled note'}</span>
+        <span className="caption notes-card-meta">
+          {isDirty(note) ? 'Unsaved · ' : ''}
+          {formatCardTime(note.updatedAt)}
+        </span>
+      </button>
+    ));
+  }
+
   return (
     <>
       <PageHeader
@@ -143,86 +215,68 @@ export default function NotesPage() {
         tag="US-06 / AC-04"
       />
 
-      <div className="notes-layout">
-        <section className="panel notes-list-panel">
-          <h2 className="section-title">Your notes</h2>
+      <div
+        className="notes-split"
+        ref={splitRef}
+        style={{ '--explorer-width': `${shownExplorerWidth}px` }}
+      >
+        <section className="notes-explorer" id="notes-explorer" aria-labelledby="notes-explorer-title">
+          <h2 className="label" id="notes-explorer-title">
+            YOUR NOTES
+          </h2>
           <button type="button" className="button button-primary notes-new" onClick={createNote}>
-            New Note
+            + New Note
           </button>
-          <p className="caption notes-count">
-            {notes.length === 1 ? '1 note' : `${notes.length} notes`} · this browser only
-          </p>
-
-          <div className="notes-list">
-            {notes.length === 0 ? (
-              <div className="notes-empty">
-                <div className="notes-item-title">No notes yet</div>
-                <div className="caption">Select New Note to create your first one.</div>
-              </div>
-            ) : (
-              notes.map((note) => (
-                <button
-                  type="button"
-                  key={note.id}
-                  className={note.id === selectedId ? 'notes-item is-selected' : 'notes-item'}
-                  aria-current={note.id === selectedId ? 'true' : undefined}
-                  onClick={() => selectNote(note.id)}
-                >
-                  <span className="notes-item-title">{note.title.trim() || 'Untitled note'}</span>
-                  <span className="caption notes-item-preview">
-                    {isDirty(note) ? 'Unsaved · ' : ''}
-                    {previewOf(note)}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-
+          <input
+            type="search"
+            className="notes-search"
+            aria-label="Search notes"
+            placeholder="Search notes..."
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div className="label notes-recent-label">RECENT NOTES</div>
+          <div className="notes-list">{listContent}</div>
           <p className="caption notes-list-footer">
             Notes are stored in this browser only. They are not synced to an account or the cloud.
           </p>
         </section>
 
-        <section className="panel notes-editor">
-          <div className="label">NOTE EDITOR</div>
-          <input
-            ref={titleInputRef}
-            className="notes-title-input"
-            aria-label="Note title"
-            placeholder="Note title"
-            disabled={!selected}
-            value={selected?.title ?? ''}
-            onChange={(event) => updateSelected({ title: event.target.value })}
-          />
-          <p
-            className={saveFailed ? 'caption notes-save-status is-error' : 'caption notes-save-status'}
-            role="status"
-          >
-            {saveStatus}
-          </p>
+        <SplitDivider
+          value={shownExplorerWidth}
+          min={EXPLORER_MIN}
+          max={explorerMax}
+          onChange={resizeExplorer}
+          label="Resize note list"
+          controls="notes-explorer"
+        />
 
-          <div className="text-box notes-content-box">
-            <textarea
-              className="text-box-input"
-              aria-label="Note content"
-              placeholder="Write or paste your notes here..."
+        <section className="notes-editor" aria-labelledby="notes-editor-title">
+          <h2 className="label" id="notes-editor-title">
+            NOTE EDITOR
+          </h2>
+          <div className="notes-editor-toolbar">
+            <input
+              ref={titleInputRef}
+              className="notes-title-input"
+              aria-label="Note title"
+              placeholder="Untitled note"
               disabled={!selected}
-              value={selected?.content ?? ''}
-              onChange={(event) => updateSelected({ content: event.target.value })}
+              value={selected?.title ?? ''}
+              onChange={(event) => updateSelected({ title: event.target.value })}
             />
-            <div className="caption text-box-hint">
-              {selected ? 'Changes are kept when you select Save.' : 'No note selected.'}
-            </div>
-          </div>
-
-          <div className="notes-actions">
-            <button type="button" className="button button-outline" disabled={!selected} onClick={saveSelected}>
+            <button
+              type="button"
+              className="button button-outline button-pill"
+              disabled={!selected}
+              onClick={saveSelected}
+            >
               Save
             </button>
             <div className="export-menu-anchor" ref={exportRef}>
               <button
                 type="button"
-                className="button button-outline"
+                className="button button-outline button-pill"
                 disabled={!selected || exporting}
                 aria-haspopup="menu"
                 aria-expanded={exportMenuOpen}
@@ -243,6 +297,21 @@ export default function NotesPage() {
             </div>
           </div>
 
+          <textarea
+            className="notes-content"
+            aria-label="Note content"
+            placeholder="Write or paste your notes here..."
+            disabled={!selected}
+            value={selected?.content ?? ''}
+            onChange={(event) => updateSelected({ content: event.target.value })}
+          />
+
+          <p
+            className={saveFailed ? 'caption notes-save-status is-error' : 'caption notes-save-status'}
+            role="status"
+          >
+            {saveStatus}
+          </p>
           <p className="caption notes-export-hint" role="status">
             {exportMessage}
           </p>

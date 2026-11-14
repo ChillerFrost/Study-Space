@@ -83,7 +83,7 @@ export default function AiStudyToolsPage() {
             <textarea
               id="ai-notes-input"
               className="text-box-input"
-              placeholder="Paste your course notes here..."
+              placeholder="Paste your course notes here…"
               value={notes}
               onChange={(event) => {
                 setNotes(event.target.value);
@@ -130,6 +130,7 @@ export default function AiStudyToolsPage() {
                     <span>{format.label}</span>
                     <input
                       type="checkbox"
+                      className="visually-hidden"
                       checked={formats.includes(format.id)}
                       onChange={() => toggleFormat(format.id)}
                     />
