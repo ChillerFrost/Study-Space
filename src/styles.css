@@ -143,20 +143,32 @@ button:disabled {
 
 .nav-item {
   display: flex;
-  align-items: center;
-  height: 48px;
-  padding: 0 16px;
+  flex-direction: column;
+  height: 64px;
+  padding: 8px 15px 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-small);
   background: var(--surface);
   color: var(--text);
+  font-weight: 500;
   text-decoration: none;
+}
+
+.nav-item-route {
+  margin-top: -1px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .nav-item.is-active {
   background: var(--selected);
   color: var(--primary);
-  font-weight: 500;
+}
+
+.nav-item.is-active .nav-item-route {
+  color: var(--primary);
 }
 
 .sidebar-footer {
@@ -173,7 +185,6 @@ button:disabled {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   height: 72px;
   padding: 0 32px;
   border-bottom: 1px solid var(--border);
@@ -182,8 +193,17 @@ button:disabled {
 
 .breadcrumb {
   display: flex;
+  flex: 0 1 600px;
   gap: 8px;
+  min-width: 0;
   color: var(--text-secondary);
+}
+
+.topbar-route {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
 }
 
 .workspace {
