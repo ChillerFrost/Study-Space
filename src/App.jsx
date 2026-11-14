@@ -5,16 +5,24 @@ import NotesPage from './pages/NotesPage.jsx';
 import AiStudyToolsPage from './pages/AiStudyToolsPage.jsx';
 import CanvasPage from './pages/CanvasPage.jsx';
 
-function sectionFromHash() {
-  const id = window.location.hash.replace('#/', '');
-  return SECTIONS.find((section) => section.id === id) ?? SECTIONS[0];
+const DEFAULT_SECTION = SECTIONS[0];
+
+// Reads the current hash. A missing or unknown hash is rewritten to the
+// default route in place (replaceState), so it never leaves a dead entry
+// in the browser history and Back/Forward keep working.
+function resolveSection() {
+  const match = SECTIONS.find((section) => section.hash === window.location.hash);
+  if (match) return match;
+
+  window.history.replaceState(null, '', DEFAULT_SECTION.hash);
+  return DEFAULT_SECTION;
 }
 
 export default function App() {
-  const [section, setSection] = useState(sectionFromHash);
+  const [section, setSection] = useState(resolveSection);
 
   useEffect(() => {
-    const onHashChange = () => setSection(sectionFromHash());
+    const onHashChange = () => setSection(resolveSection());
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -24,12 +32,12 @@ export default function App() {
     <div className="shell">
       <Sidebar activeId={section.id} />
       <div className="main">
-        <TopBar sectionLabel={section.label} />
+        <TopBar section={section} />
         <main className="workspace">
           <div hidden={section.id !== 'notes'}>
             <NotesPage />
           </div>
-          <div hidden={section.id !== 'ai-study-tools'}>
+          <div hidden={section.id !== 'ai-tools'}>
             <AiStudyToolsPage />
           </div>
           <div hidden={section.id !== 'canvas'}>
