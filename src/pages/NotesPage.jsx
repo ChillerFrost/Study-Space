@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import PageHeader from '../components/PageHeader.jsx';
 import SplitDivider from '../components/SplitDivider.jsx';
-import { exportNoteAsDocx, exportNoteAsPdf } from '../lib/exportNote.js';
+import { canExportNote, exportNoteAsDocx, exportNoteAsPdf } from '../lib/exportNote.js';
 import { loadNotes, writeNotes } from '../lib/notesStorage.js';
 
 const SAVE_ERROR = 'Could not save. Browser storage is blocked or full.';
@@ -67,6 +67,7 @@ export default function NotesPage() {
     return !saved || saved.title !== note.title || saved.content !== note.content;
   };
   const hasUnsavedNotes = notes.some(isDirty);
+  const exportDisabled = !canExportNote(selected) || exporting;
 
   // Keep the editor at least EDITOR_MIN wide as the window resizes.
   useEffect(() => {
@@ -131,7 +132,8 @@ export default function NotesPage() {
   };
 
   const createNote = () => {
-    const note = { id: crypto.randomUUID(), title: '', content: '', updatedAt: Date.now() };
+    const now = Date.now();
+    const note = { id: crypto.randomUUID(), title: '', content: '', createdAt: now, updatedAt: now };
     const next = [note, ...notes];
     setNotes(next);
     persist(next, note.id);
@@ -277,20 +279,21 @@ export default function NotesPage() {
               <button
                 type="button"
                 className="button button-outline button-pill"
-                disabled={!selected || exporting}
+                disabled={exportDisabled}
+                title={selected && !exporting && exportDisabled ? 'Add a title or text to export' : undefined}
                 aria-haspopup="menu"
                 aria-expanded={exportMenuOpen}
                 onClick={() => setExportMenuOpen((open) => !open)}
               >
                 {exporting ? 'Exporting...' : 'Export'}
               </button>
-              {exportMenuOpen && (
+              {exportMenuOpen && !exportDisabled && (
                 <div className="export-menu" role="menu">
                   <button type="button" role="menuitem" onClick={() => runExport(exportNoteAsPdf)}>
-                    PDF (.pdf)
+                    Export as PDF
                   </button>
                   <button type="button" role="menuitem" onClick={() => runExport(exportNoteAsDocx)}>
-                    Word (.docx)
+                    Export as DOCX
                   </button>
                 </div>
               )}
