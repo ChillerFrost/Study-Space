@@ -3,6 +3,7 @@ import PageHeader from '../components/PageHeader.jsx';
 import SplitDivider from '../components/SplitDivider.jsx';
 import { canExportNote, exportNoteAsDocx, exportNoteAsPdf } from '../lib/exportNote.js';
 import { loadNotes, writeNotes } from '../lib/notesStorage.js';
+import { SAVE_NOTE_EVENT } from '../components/study/SummaryView.jsx';
 
 const SAVE_ERROR = 'Could not save. Browser storage is blocked or full.';
 const EXPORT_HINT = 'Export formats: PDF / DOCX. Files download to this device.';
@@ -57,6 +58,7 @@ export default function NotesPage() {
   const titleInputRef = useRef(null);
   const exportRef = useRef(null);
   const focusTitleOnCreate = useRef(false);
+  const addNoteRef = useRef(null);
 
   const selected = notes.find((note) => note.id === selectedId) ?? null;
   const savedById = new Map(savedNotes.map((note) => [note.id, note]));
@@ -143,6 +145,21 @@ export default function NotesPage() {
     setExportMenuOpen(false);
     setExportMessage(EXPORT_HINT);
   };
+
+  // "Save to Notes" on the AI summary screen adds a saved note here.
+  addNoteRef.current = ({ title, content }) => {
+    const now = Date.now();
+    const note = { id: crypto.randomUUID(), title, content, createdAt: now, updatedAt: now };
+    const next = [note, ...notes];
+    setNotes(next);
+    persist(next, note.id);
+  };
+
+  useEffect(() => {
+    const onSaveNote = (event) => addNoteRef.current(event.detail);
+    window.addEventListener(SAVE_NOTE_EVENT, onSaveNote);
+    return () => window.removeEventListener(SAVE_NOTE_EVENT, onSaveNote);
+  }, []);
 
   const updateSelected = (changes) => {
     setNotes((current) =>

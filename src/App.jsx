@@ -24,6 +24,7 @@ function resolveSection() {
 
 export default function App() {
   const [section, setSection] = useState(resolveSection);
+  const [aiBreadcrumb, setAiBreadcrumb] = useState(null);
 
   useEffect(() => {
     const onHashChange = () => setSection(resolveSection());
@@ -36,13 +37,13 @@ export default function App() {
     <div className="shell">
       <Sidebar activeId={section.id} />
       <div className="main">
-        <TopBar section={section} />
+        <TopBar section={section} detail={section.id === 'ai-tools' ? aiBreadcrumb : null} />
         <main className="workspace">
           <div hidden={section.id !== 'notes'}>
             <NotesPage />
           </div>
           <div hidden={section.id !== 'ai-tools'}>
-            <AiStudyToolsPage />
+            <AiStudyToolsPage onBreadcrumbChange={setAiBreadcrumb} />
           </div>
           <div hidden={section.id !== 'canvas'}>
             <CanvasPage />

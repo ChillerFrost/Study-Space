@@ -1,16 +1,33 @@
-// Integration point for AI generation. Nothing here calls a model or a server.
+// Integration point for AI generation (Phase 3). Nothing here calls a model,
+// a server, or the network: both functions reject with GenerationNotConnectedError,
+// which the AI Study Tools page shows as "RESULTS · NOT CONNECTED".
 //
-// To connect generation, replace these two functions and return:
-//   generateSummary({ notes })          -> { summary: string }
-//   generateQuiz({ notes, formats })    -> { questions: Question[] }
+// To connect generation, replace these two functions and resolve with the shapes below.
+// The result screens (quiz ready, multiple choice, true/false, flashcards, summary)
+// render whatever comes back; the calculus content in the Figma frames is only an example.
 //
-// formats contains any of: 'multiple-choice', 'true-false', 'flashcards'.
-// Question is one of:
-//   { format: 'multiple-choice', prompt, options: string[], answer: string }
-//   { format: 'true-false', prompt, answer: boolean }
-//   { format: 'flashcards', front, back }
+// generateSummary({ notes }) -> {
+//   title?: string,                       // e.g. "Your calculus summary"
+//   overview: string,                     // "The big picture"
+//   sections: { heading, body }[],        // core concepts
+//   reminder?: string,
+//   source?: Source,
+// }
 //
-// Then update the "Not connected" hint in AiStudyToolsPage.
+// generateQuiz({ notes, formats, counts }) -> {
+//   title: string,                        // e.g. "Calculus I: limits, derivatives & integrals"
+//   questions: Question[],
+//   source?: Source,
+// }
+//   formats: any of 'multiple-choice', 'true-false', 'flashcards'
+//   counts:  { 'multiple-choice'?: number, 'true-false'?: number, flashcards?: number }
+//
+// Question (topic, hint and whyItMatters are optional):
+//   { format: 'multiple-choice', topic, prompt, options: string[], answerIndex, explanation, hint, whyItMatters }
+//   { format: 'true-false', topic, prompt, answer: boolean, explanation, hint, whyItMatters }
+//   { format: 'flashcards', topic, front, back, explanation }
+//
+// Source: { title, course?, topicCount? }  // e.g. { title: 'Calculus I · Lecture 04', course: 'MATH 101' }
 
 export class GenerationNotConnectedError extends Error {
   constructor() {
