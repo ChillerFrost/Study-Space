@@ -1,3 +1,14 @@
+import { useEffect, useState } from 'react';
+import { fetchConnectionStatus } from '../services/api.js';
+
+function connectionCaption(status) {
+  if (!status) return 'Checking connections...';
+  if (status.ai && status.canvas) return 'AI and Canvas are connected.';
+  if (status.ai) return 'AI is connected. Canvas is not connected.';
+  if (status.canvas) return 'Canvas is connected. AI is not connected.';
+  return 'AI and Canvas are not connected.';
+}
+
 export const SECTIONS = [
   { id: 'notes', label: 'Notes', hash: '#/notes' },
   { id: 'ai-tools', label: 'AI Study Tools', hash: '#/ai-tools' },
@@ -9,6 +20,19 @@ export const SECTIONS = [
 const ACTIVE_CLASSES = 'nav-item is-active bg-blue-50 text-blue-600 font-semibold';
 
 export default function Sidebar({ activeId }) {
+  const [status, setStatus] = useState(null);
+
+  // Re-check on page change, so starting the server or editing .env shows up without a reload.
+  useEffect(() => {
+    let cancelled = false;
+    fetchConnectionStatus().then((next) => {
+      if (!cancelled) setStatus(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId]);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -39,7 +63,9 @@ export default function Sidebar({ activeId }) {
         {activeId !== 'notes' && (
           <>
             <div className="caption">Notes save in this browser.</div>
-            <div className="caption">AI and Canvas are not connected.</div>
+            <div className="caption" role="status">
+              {connectionCaption(status)}
+            </div>
           </>
         )}
       </div>

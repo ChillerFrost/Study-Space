@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Banner from '../components/Banner.jsx';
 import PageHeader from '../components/PageHeader.jsx';
-import { demoAssignments } from '../data/demoAssignments.js';
+import { CanvasNotConnectedError, fetchAssignments } from '../services/canvas.js';
 import {
   WEEKDAYS,
   buildMonthCells,
@@ -12,14 +12,42 @@ import {
   toDateKey,
 } from '../lib/calendar.js';
 
-function agendaSubtitle(selectedDate, assignmentsOnDate) {
-  if (!selectedDate) return 'Sample assignments · Demo data';
+function agendaSubtitle(selectedDate, assignmentsOnDate, status) {
+  if (status === 'loading') return 'Loading assignments...';
+  if (status !== 'live') return 'Canvas not connected';
+  if (!selectedDate) return 'Upcoming assignments · From Canvas';
   const count = assignmentsOnDate.length;
   const summary = count === 0 ? 'Nothing due' : `${count} due`;
-  return `${formatShortDate(selectedDate)} · ${summary} · Demo data`;
+  return `${formatShortDate(selectedDate)} · ${summary} · From Canvas`;
 }
 
-export default function CanvasPage({ assignments = demoAssignments }) {
+// Loads live assignments from the server. The list stays empty until Canvas is connected.
+function useCanvasAssignments() {
+  const [state, setState] = useState({ status: 'loading', assignments: [] });
+  useEffect(() => {
+    let cancelled = false;
+    fetchAssignments()
+      .then((assignments) => {
+        if (!cancelled) setState({ status: 'live', assignments });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (!(error instanceof CanvasNotConnectedError)) console.error(error);
+        setState({
+          status: error instanceof CanvasNotConnectedError ? 'not-connected' : 'error',
+          assignments: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
+export default function CanvasPage() {
+  const { status, assignments } = useCanvasAssignments();
+  const isLive = status === 'live';
   const sorted = useMemo(
     () => [...assignments].sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
     [assignments],
@@ -39,6 +67,12 @@ export default function CanvasPage({ assignments = demoAssignments }) {
   });
   const [selectedDate, setSelectedDate] = useState(null);
 
+  useEffect(() => {
+    if (status !== 'live' || !sorted[0]) return;
+    const start = parseDateKey(sorted[0].dueDate);
+    setVisibleMonth({ year: start.getFullYear(), month: start.getMonth() });
+  }, [status, sorted]);
+
   const { year, month } = visibleMonth;
 
   const shiftMonth = (delta) => {
@@ -56,20 +90,19 @@ export default function CanvasPage({ assignments = demoAssignments }) {
     <>
       <PageHeader
         title="Canvas"
-        description="Assignment planning concepts for a future Canvas connection."
+        description="Upcoming assignments from your Canvas courses."
         tag="US-08 / AC-06"
       />
 
       <div className="canvas-layout">
         <section className="panel calendar-panel">
           <h2 className="section-title">Monthly Calendar</h2>
-          <p className="caption calendar-subtitle">Future layout concept</p>
+          <p className="caption calendar-subtitle">{isLive ? 'Due dates' : 'Canvas not connected'}</p>
 
           <div className="calendar-header">
             <h3 className="calendar-month" aria-live="polite">
               {formatMonth(year, month)}
             </h3>
-            <span className="demo-label calendar-demo">Demo data</span>
             <div className="calendar-nav">
               <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
                 ‹
@@ -122,7 +155,7 @@ export default function CanvasPage({ assignments = demoAssignments }) {
         <section className="panel agenda-panel">
           <h2 className="section-title">Agenda</h2>
           <p className="caption agenda-subtitle" role="status">
-            {agendaSubtitle(selectedDate, byDate.get(selectedDate) ?? [])}
+            {agendaSubtitle(selectedDate, byDate.get(selectedDate) ?? [], status)}
           </p>
           <div className="agenda-list">
             {sorted.length === 0 ? (
@@ -138,7 +171,6 @@ export default function CanvasPage({ assignments = demoAssignments }) {
                   aria-pressed={assignment.dueDate === selectedDate}
                   onClick={() => selectAssignment(assignment)}
                 >
-                  <span className="demo-label assignment-demo">Demo data</span>
                   <span className="assignment-course">
                     {assignment.courseCode} · {assignment.courseName}
                   </span>
@@ -151,9 +183,17 @@ export default function CanvasPage({ assignments = demoAssignments }) {
         </section>
       </div>
 
-      <Banner heading="Canvas is not connected." headingClassName="banner-title">
-        Demo data only. No authentication, course sync, or live assignment data is included.
-      </Banner>
+      {status === 'not-connected' && (
+        <Banner heading="Canvas is not connected." headingClassName="banner-title">
+          Add CANVAS_BASE_URL and CANVAS_API_TOKEN to .env and start the server
+          (npm run server) to load your real assignments.
+        </Banner>
+      )}
+      {status === 'error' && (
+        <Banner heading="Couldn't load Canvas assignments." headingClassName="banner-title">
+          Check the server log for the Canvas error.
+        </Banner>
+      )}
     </>
   );
 }
