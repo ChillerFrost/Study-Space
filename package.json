@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node --watch-path=server --watch-path=.env server/index.js",
-    "dev:all": "concurrently -n api,web -c blue,green \"npm:server\" \"npm:dev\""
+    "dev:all": "concurrently -n api,web -c blue,green \"npm:server\" \"npm:dev\"",
+    "start": "node server/index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
@@ -16,8 +20,10 @@
     "docx": "^9.15.2",
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.5",
     "jspdf": "^4.2.1",
     "mongodb": "^7.9.1",
+    "nodemailer": "^10.6.1",
     "openai": "^7.60.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

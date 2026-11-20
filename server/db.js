@@ -47,6 +47,8 @@ async function connect() {
     db.collection('sessions').createIndex({ tokenHash: 1 }, { unique: true }),
     // MongoDB deletes expired sessions on its own.
     db.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    db.collection('passwordResets').createIndex({ email: 1 }),
+    db.collection('passwordResets').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
   ]);
   console.log(`Connected to MongoDB database "${db.databaseName}"`);
   return db;

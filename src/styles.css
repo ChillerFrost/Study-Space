@@ -2013,3 +2013,9 @@ button:disabled {
 .day-popover-link:hover {
   text-decoration: underline;
 }
+
+.login-forgot {
+  align-self: flex-end;
+  color: var(--primary);
+  font-size: 13px;
+}

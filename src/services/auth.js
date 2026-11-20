@@ -9,6 +9,14 @@ export function login(email, password) {
   return apiRequest('/auth/login', { method: 'POST', body: { email, password } });
 }
 
+export function requestPasswordReset(email) {
+  return apiRequest('/auth/forgot-password', { method: 'POST', body: { email } });
+}
+
+export function resetPassword(email, code, password) {
+  return apiRequest('/auth/reset-password', { method: 'POST', body: { email, code, password } });
+}
+
 export async function logout() {
   try {
     await apiRequest('/auth/logout', { method: 'POST' });

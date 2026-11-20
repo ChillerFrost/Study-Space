@@ -1,5 +1,11 @@
 // API server for Study-Space. Vite proxies /api/* here during development (see vite.config.js).
+// In production (e.g. Railway) it also serves the built frontend from dist/, so the whole app
+// runs as one service and every secret stays in the server's environment variables.
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { askLLMForJSON, llmConfig, llmConfigured, LLMNotConfiguredError } from './llm.js';
 import {
   canvasConfig,
@@ -8,6 +14,8 @@ import {
   getUpcomingAssignments,
 } from './canvas.js';
 import { databaseConfigured, DatabaseNotConfiguredError, getDb } from './db.js';
+import { mailConfigured, MailNotConfiguredError } from './mail.js';
+import { requestPasswordReset, resetPassword } from './passwordReset.js';
 import {
   checkPassword,
   createSession,
@@ -25,7 +33,26 @@ const MIN_NOTE_CHARACTERS = 10;
 const MAX_NOTE_CHARACTERS = 50000;
 
 const app = express();
+// Railway (and most hosts) put one proxy in front of the app; this makes req.ip the real
+// client address, which the rate limits below rely on.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '5mb' }));
+
+// Per-IP request limits, so a public deployment can't be used to guess passwords,
+// spam reset emails, or run up the AI bill.
+function limit(windowMinutes, max, message) {
+  return rateLimit({
+    windowMs: windowMinutes * 60 * 1000,
+    limit: max,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { error: message },
+  });
+}
+const authLimit = limit(15, 20, 'Too many sign-in attempts. Try again in a few minutes.');
+const resetEmailLimit = limit(60, 5, 'Too many reset emails requested. Try again later.');
+const resetCodeLimit = limit(15, 10, 'Too many reset attempts. Try again in a few minutes.');
+const aiLimit = limit(10, 30, 'Too many AI requests. Wait a few minutes and try again.');
 
 // Wraps async routes so thrown errors become JSON responses instead of crashing the server.
 // 503 + notConnected tells the frontend to show its "NOT CONNECTED" banner.
@@ -36,7 +63,8 @@ const route = (handler) => async (req, res) => {
     if (
       error instanceof LLMNotConfiguredError ||
       error instanceof CanvasNotConfiguredError ||
-      error instanceof DatabaseNotConfiguredError
+      error instanceof DatabaseNotConfiguredError ||
+      error instanceof MailNotConfiguredError
     ) {
       res.status(503).json({ error: error.message, notConnected: true });
       return;
@@ -70,6 +98,7 @@ Return JSON with this shape:
 
 app.post(
   '/api/summarize',
+  aiLimit,
   route(async (req, res) => {
     const notes = readNotes(req, res);
     if (notes === null) return;
@@ -120,6 +149,7 @@ function isValidQuestion(q) {
 
 app.post(
   '/api/quiz',
+  aiLimit,
   route(async (req, res) => {
     const notes = readNotes(req, res);
     if (notes === null) return;
@@ -155,6 +185,7 @@ app.get(
 
 app.post(
   '/api/auth/register',
+  authLimit,
   route(async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const password = checkPassword(req.body?.password);
@@ -178,6 +209,7 @@ app.post(
 
 app.post(
   '/api/auth/login',
+  authLimit,
   route(async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -187,6 +219,25 @@ app.post(
       throw new HttpError(401, 'Email or password is incorrect');
     }
     res.json({ token: await createSession(user._id), user: publicUser(user) });
+  }),
+);
+
+// Emails a 6-digit reset code. Answers the same whether or not the account exists.
+app.post(
+  '/api/auth/forgot-password',
+  resetEmailLimit,
+  route(async (req, res) => {
+    if (!mailConfigured()) throw new MailNotConfiguredError();
+    await requestPasswordReset(req.body?.email);
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  '/api/auth/reset-password',
+  resetCodeLimit,
+  route(async (req, res) => {
+    res.json(await resetPassword(req.body ?? {}));
   }),
 );
 
@@ -277,6 +328,21 @@ app.get('/api/health', (req, res) => {
     database: databaseConfigured(),
   });
 });
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// The built frontend (npm run build). Absent during development, where Vite serves it instead.
+const distDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+if (existsSync(path.join(distDir, 'index.html'))) {
+  app.use(express.static(distDir, { index: 'index.html', maxAge: '1h' }));
+  // The app uses #/hash routes, but send index.html for any other page path too.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Study-Space API on http://localhost:${PORT} (LLM provider: ${llmConfig().provider})`);
