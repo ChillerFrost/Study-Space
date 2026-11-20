@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchConnectionStatus } from '../services/api.js';
+import { useSession } from '../lib/session.js';
+import { SETTINGS_CHANGED_EVENT } from '../lib/settings.js';
 
 function connectionCaption(status) {
   if (!status) return 'Checking connections...';
@@ -13,16 +15,32 @@ export const SECTIONS = [
   { id: 'notes', label: 'Notes', hash: '#/notes' },
   { id: 'ai-tools', label: 'AI Study Tools', hash: '#/ai-tools' },
   { id: 'canvas', label: 'Canvas', hash: '#/canvas' },
+  { id: 'settings', label: 'Settings', hash: '#/settings' },
 ];
 
 // AC-1.2 class names, kept alongside .is-active so QA can find them.
 // The visual style itself comes from .is-active (Figma values).
 const ACTIVE_CLASSES = 'nav-item is-active bg-blue-50 text-blue-600 font-semibold';
 
-export default function Sidebar({ activeId }) {
-  const [status, setStatus] = useState(null);
+function saveCaption(session) {
+  if (session.mode === 'offline') return 'Offline · notes save on this computer.';
+  return session.saveTo === 'cloud'
+    ? `Notes save to ${session.email}.`
+    : 'Notes save on this computer.';
+}
 
-  // Re-check on page change, so starting the server or editing .env shows up without a reload.
+export default function Sidebar({ activeId }) {
+  const { session } = useSession();
+  const [status, setStatus] = useState(null);
+  const [settingsVersion, setSettingsVersion] = useState(0);
+
+  useEffect(() => {
+    const onChange = () => setSettingsVersion((version) => version + 1);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onChange);
+  }, []);
+
+  // Re-check on page change or new settings, so starting the server or adding keys shows up without a reload.
   useEffect(() => {
     let cancelled = false;
     fetchConnectionStatus().then((next) => {
@@ -31,7 +49,7 @@ export default function Sidebar({ activeId }) {
     return () => {
       cancelled = true;
     };
-  }, [activeId]);
+  }, [activeId, settingsVersion]);
 
   return (
     <aside className="sidebar">
@@ -62,7 +80,7 @@ export default function Sidebar({ activeId }) {
       <div className="sidebar-footer">
         {activeId !== 'notes' && (
           <>
-            <div className="caption">Notes save in this browser.</div>
+            <div className="caption">{saveCaption(session)}</div>
             <div className="caption" role="status">
               {connectionCaption(status)}
             </div>

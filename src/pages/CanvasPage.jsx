@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Banner from '../components/Banner.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import { CanvasNotConnectedError, fetchAssignments } from '../services/canvas.js';
+import { SETTINGS_CHANGED_EVENT } from '../lib/settings.js';
 import {
   WEEKDAYS,
   buildMonthCells,
@@ -21,11 +22,114 @@ function agendaSubtitle(selectedDate, assignmentsOnDate, status) {
   return `${formatShortDate(selectedDate)} · ${summary} · From Canvas`;
 }
 
+const POPOVER_GAP = 6;
+
+// Only real web links from Canvas are shown, never javascript: or other schemes.
+function safeLink(url) {
+  try {
+    return ['https:', 'http:'].includes(new URL(url).protocol) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatDueTime(dueAt) {
+  if (!dueAt) return '';
+  return new Date(dueAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// Click-to-open list of everything due on one day, with links to each assignment in Canvas.
+function DayPopover({ dateKey, assignments, position, onClose }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose({ restoreFocus: true });
+    };
+    // Clicks on a day are handled by the day itself, so it can toggle or switch days.
+    const onMouseDown = (event) => {
+      if (!ref.current?.contains(event.target) && !event.target.closest('.calendar-day')) onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onMouseDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [onClose]);
+
+  const count = assignments.length;
+  return (
+    <div
+      ref={ref}
+      className="day-popover"
+      role="dialog"
+      aria-labelledby="day-popover-title"
+      tabIndex={-1}
+      style={position}
+    >
+      <div className="day-popover-header">
+        <div>
+          <h4 className="day-popover-title" id="day-popover-title">
+            {formatDueDate(dateKey)}
+          </h4>
+          <div className="caption">{count === 0 ? 'Nothing due' : `${count} due`}</div>
+        </div>
+        <button
+          type="button"
+          className="day-popover-close"
+          aria-label="Close"
+          onClick={() => onClose({ restoreFocus: true })}
+        >
+          ×
+        </button>
+      </div>
+      {count === 0 ? (
+        <p className="caption day-popover-empty">No assignments are due on this day.</p>
+      ) : (
+        <ul className="day-popover-list">
+          {assignments.map((assignment) => {
+            const link = safeLink(assignment.url);
+            const time = formatDueTime(assignment.dueAt);
+            return (
+              <li key={assignment.id} className="day-popover-item">
+                <span className="assignment-course">
+                  {assignment.courseCode} · {assignment.courseName}
+                </span>
+                {link ? (
+                  <a className="day-popover-link" href={link} target="_blank" rel="noopener noreferrer">
+                    {assignment.title}
+                    <span className="visually-hidden"> (opens Canvas in a new tab)</span>
+                  </a>
+                ) : (
+                  <span className="assignment-title">{assignment.title}</span>
+                )}
+                {time && <span className="caption">Due {time}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // Loads live assignments from the server. The list stays empty until Canvas is connected.
+// Reloads when the Canvas URL or token changes on the Settings page.
 function useCanvasAssignments() {
   const [state, setState] = useState({ status: 'loading', assignments: [] });
+  const [settingsVersion, setSettingsVersion] = useState(0);
+
+  useEffect(() => {
+    const onChange = () => setSettingsVersion((version) => version + 1);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onChange);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
+    setState((current) => ({ ...current, status: 'loading' }));
     fetchAssignments()
       .then((assignments) => {
         if (!cancelled) setState({ status: 'live', assignments });
@@ -41,7 +145,7 @@ function useCanvasAssignments() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [settingsVersion]);
   return state;
 }
 
@@ -66,6 +170,33 @@ export default function CanvasPage() {
     return { year: start.getFullYear(), month: start.getMonth() };
   });
   const [selectedDate, setSelectedDate] = useState(null);
+  const [popover, setPopover] = useState(null); // { key, position } | null
+  const gridRef = useRef(null);
+  const popoverDayRef = useRef(null);
+
+  const closePopover = useCallback(({ restoreFocus = false } = {}) => {
+    setPopover(null);
+    if (restoreFocus) popoverDayRef.current?.focus();
+  }, []);
+
+  // Opens the popover next to the clicked day: below it in the top half of the month, above it lower down.
+  const openDay = (key, cell) => {
+    if (popover?.key === key) {
+      setPopover(null);
+      setSelectedDate(null);
+      return;
+    }
+    const grid = gridRef.current;
+    const popoverWidth = Math.min(320, grid.clientWidth);
+    const left = Math.max(0, Math.min(cell.offsetLeft, grid.clientWidth - popoverWidth));
+    const position =
+      cell.offsetTop + cell.offsetHeight / 2 < grid.clientHeight / 2
+        ? { left, top: cell.offsetTop + cell.offsetHeight + POPOVER_GAP }
+        : { left, bottom: grid.clientHeight - cell.offsetTop + POPOVER_GAP };
+    popoverDayRef.current = cell;
+    setSelectedDate(key);
+    setPopover({ key, position: { ...position, width: popoverWidth } });
+  };
 
   useEffect(() => {
     if (status !== 'live' || !sorted[0]) return;
@@ -76,11 +207,13 @@ export default function CanvasPage() {
   const { year, month } = visibleMonth;
 
   const shiftMonth = (delta) => {
+    setPopover(null);
     const next = new Date(year, month + delta, 1);
     setVisibleMonth({ year: next.getFullYear(), month: next.getMonth() });
   };
 
   const selectAssignment = (assignment) => {
+    setPopover(null);
     const due = parseDateKey(assignment.dueDate);
     setVisibleMonth({ year: due.getFullYear(), month: due.getMonth() });
     setSelectedDate(assignment.dueDate);
@@ -119,7 +252,7 @@ export default function CanvasPage() {
             ))}
           </div>
 
-          <div className="calendar-grid">
+          <div className="calendar-grid" ref={gridRef}>
             {buildMonthCells(year, month).map((day, index) => {
               if (day === null) return <div key={`blank-${index}`} className="calendar-day" />;
 
@@ -135,9 +268,10 @@ export default function CanvasPage() {
                   type="button"
                   key={key}
                   className={classes.join(' ')}
-                  aria-pressed={key === selectedDate}
+                  aria-haspopup="dialog"
+                  aria-expanded={popover?.key === key}
                   aria-label={`${formatDueDate(key)}${dueText ? `. Due: ${dueText}` : ''}`}
-                  onClick={() => setSelectedDate(key === selectedDate ? null : key)}
+                  onClick={(event) => openDay(key, event.currentTarget)}
                 >
                   <span className="calendar-day-number">{day}</span>
                   {due.length > 0 && (
@@ -149,6 +283,14 @@ export default function CanvasPage() {
                 </button>
               );
             })}
+            {popover && (
+              <DayPopover
+                dateKey={popover.key}
+                assignments={byDate.get(popover.key) ?? []}
+                position={popover.position}
+                onClose={closePopover}
+              />
+            )}
           </div>
         </section>
 
@@ -185,8 +327,8 @@ export default function CanvasPage() {
 
       {status === 'not-connected' && (
         <Banner heading="Canvas is not connected." headingClassName="banner-title">
-          Add CANVAS_BASE_URL and CANVAS_API_TOKEN to .env and start the server
-          (npm run server) to load your real assignments.
+          Add your Canvas base URL and API token on the Settings page (or CANVAS_BASE_URL and
+          CANVAS_API_TOKEN in .env), and start the server (npm run server) to load your real assignments.
         </Banner>
       )}
       {status === 'error' && (

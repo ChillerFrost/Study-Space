@@ -3,21 +3,41 @@
 import 'dotenv/config';
 
 export class CanvasNotConfiguredError extends Error {
-  constructor() {
-    super('Missing CANVAS_BASE_URL or CANVAS_API_TOKEN in .env');
+  constructor(message = 'Missing Canvas base URL or API token. Add them on the Settings page or in .env.') {
+    super(message);
     this.name = 'CanvasNotConfiguredError';
   }
 }
 
-export function canvasConfigured() {
-  return Boolean(process.env.CANVAS_BASE_URL && process.env.CANVAS_API_TOKEN);
+const header = (req, name) => req?.get?.(name)?.trim() || '';
+
+// Canvas settings for one request: the Settings page (request headers) wins over .env.
+export function canvasConfig(req) {
+  return {
+    baseUrl: header(req, 'x-canvas-base-url') || process.env.CANVAS_BASE_URL || '',
+    token: header(req, 'x-canvas-token') || process.env.CANVAS_API_TOKEN || '',
+  };
 }
 
-export async function canvasGet(path) {
-  if (!canvasConfigured()) throw new CanvasNotConfiguredError();
-  const base = process.env.CANVAS_BASE_URL.replace(/\/+$/, '');
-  const res = await fetch(`${base}${path}`, {
-    headers: { Authorization: `Bearer ${process.env.CANVAS_API_TOKEN}` },
+export function canvasConfigured(config) {
+  return Boolean(config.baseUrl && config.token);
+}
+
+function canvasBase(config) {
+  let url;
+  try {
+    url = new URL(config.baseUrl);
+  } catch {
+    throw new CanvasNotConfiguredError('Canvas base URL is not a valid URL.');
+  }
+  if (url.protocol !== 'https:') throw new CanvasNotConfiguredError('Canvas base URL must start with https://');
+  return url.href.replace(/\/+$/, '');
+}
+
+export async function canvasGet(path, config) {
+  if (!canvasConfigured(config)) throw new CanvasNotConfiguredError();
+  const res = await fetch(`${canvasBase(config)}${path}`, {
+    headers: { Authorization: `Bearer ${config.token}` },
   });
   if (!res.ok) throw new Error(`Canvas error ${res.status} on ${path}`);
   return res.json();
@@ -31,8 +51,8 @@ function shortCourseCode(code) {
 
 // Upcoming assignments from all active courses, in the shape the Canvas page expects
 // (dueAt is an ISO timestamp; the browser turns it into a local calendar date).
-export async function getUpcomingAssignments() {
-  const courses = await canvasGet('/courses?enrollment_state=active&per_page=50');
+export async function getUpcomingAssignments(config) {
+  const courses = await canvasGet('/courses?enrollment_state=active&per_page=50', config);
   const perCourse = await Promise.all(
     courses
       .filter((course) => course.id && course.name)
@@ -40,6 +60,7 @@ export async function getUpcomingAssignments() {
         try {
           const assignments = await canvasGet(
             `/courses/${course.id}/assignments?bucket=future&order_by=due_at&per_page=50`,
+            config,
           );
           return assignments
             .filter((assignment) => assignment.due_at)

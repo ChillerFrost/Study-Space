@@ -4,7 +4,8 @@ import { apiRequest, NotConnectedError } from './api.js';
 
 export { NotConnectedError as CanvasNotConnectedError };
 
-// Resolves to [{ id, courseCode, courseName, title, dueDate: 'YYYY-MM-DD', url }].
+// Resolves to [{ id, courseCode, courseName, title, dueAt, dueDate: 'YYYY-MM-DD', url }].
+// url is the assignment's page in Canvas.
 export async function fetchAssignments() {
   const assignments = await apiRequest('/assignments');
   return assignments.map(({ dueAt, ...rest }) => {
@@ -15,6 +16,6 @@ export async function fetchAssignments() {
       String(due.getMonth() + 1).padStart(2, '0'),
       String(due.getDate()).padStart(2, '0'),
     ].join('-');
-    return { ...rest, dueDate };
+    return { ...rest, dueAt, dueDate };
   });
 }

@@ -1,5 +1,6 @@
 // The one function the rest of the server calls to talk to a model.
-// Switch providers with LLM_PROVIDER in .env: "spark" (default), "openai", or "anthropic".
+// API keys and models come from the Settings page (sent as request headers)
+// and fall back to .env. The provider is LLM_PROVIDER in .env: "spark" (default), "openai", or "anthropic".
 import 'dotenv/config';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
@@ -11,36 +12,65 @@ export class LLMNotConfiguredError extends Error {
   }
 }
 
-function requireEnv(...names) {
-  const missing = names.filter((name) => !process.env[name]);
+const header = (req, name) => req?.get?.(name)?.trim() || '';
+
+// Builds the model settings for one request. Header values win over .env values.
+// The Spark base URL is only read from .env so the browser can't point the server at other hosts.
+export function llmConfig(req) {
+  const env = process.env;
+  return {
+    provider: (env.LLM_PROVIDER || 'spark').toLowerCase(),
+    spark: {
+      baseURL: env.LLM_BASE_URL,
+      apiKey: header(req, 'x-spark-api-key') || env.LLM_API_KEY,
+      model: header(req, 'x-spark-model') || env.LLM_MODEL,
+    },
+    openai: {
+      apiKey: header(req, 'x-openai-api-key') || env.OPENAI_API_KEY,
+      model: header(req, 'x-openai-model') || env.OPENAI_MODEL,
+    },
+    anthropic: {
+      apiKey: header(req, 'x-anthropic-api-key') || env.ANTHROPIC_API_KEY,
+      model: header(req, 'x-anthropic-model') || env.ANTHROPIC_MODEL,
+    },
+  };
+}
+
+const REQUIRED = {
+  spark: { baseURL: 'LLM_BASE_URL in .env', model: 'a Spark model' },
+  openai: { apiKey: 'an OpenAI API key', model: 'an OpenAI model' },
+  anthropic: { apiKey: 'an Anthropic API key', model: 'an Anthropic model' },
+};
+
+function missingFields(config) {
+  const required = REQUIRED[config.provider];
+  if (!required) return null;
+  return Object.entries(required)
+    .filter(([field]) => !config[config.provider][field])
+    .map(([, label]) => label);
+}
+
+export function llmConfigured(config) {
+  const missing = missingFields(config);
+  return Boolean(missing) && missing.length === 0;
+}
+
+function requireConfigured(config) {
+  const missing = missingFields(config);
+  if (!missing) throw new LLMNotConfiguredError(`Unknown LLM provider "${config.provider}"`);
   if (missing.length > 0) {
-    throw new LLMNotConfiguredError(`Missing ${missing.join(', ')} in .env`);
+    throw new LLMNotConfiguredError(`Missing ${missing.join(', ')}. Add it on the Settings page or in .env.`);
   }
 }
 
-export function currentProvider() {
-  return (process.env.LLM_PROVIDER || 'spark').toLowerCase();
-}
-
-const REQUIRED_ENV = {
-  spark: ['LLM_BASE_URL', 'LLM_MODEL'],
-  openai: ['OPENAI_API_KEY', 'OPENAI_MODEL'],
-  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL'],
-};
-
-export function llmConfigured() {
-  const names = REQUIRED_ENV[currentProvider()];
-  return Boolean(names) && names.every((name) => process.env[name]);
-}
-
-export async function askLLM(system, userText, { maxTokens = 4000 } = {}) {
-  const provider = currentProvider();
+export async function askLLM(system, userText, { maxTokens = 4000, config = llmConfig() } = {}) {
+  requireConfigured(config);
+  const { provider } = config;
 
   if (provider === 'anthropic') {
-    requireEnv('ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL');
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const client = new Anthropic({ apiKey: config.anthropic.apiKey });
     const res = await client.messages.create({
-      model: process.env.ANTHROPIC_MODEL,
+      model: config.anthropic.model,
       max_tokens: maxTokens,
       system,
       messages: [{ role: 'user', content: userText }],
@@ -51,26 +81,14 @@ export async function askLLM(system, userText, { maxTokens = 4000 } = {}) {
       .join('');
   }
 
-  let apiKey;
-  let baseURL;
-  let model;
-  if (provider === 'openai') {
-    requireEnv('OPENAI_API_KEY', 'OPENAI_MODEL');
-    apiKey = process.env.OPENAI_API_KEY;
-    model = process.env.OPENAI_MODEL;
-  } else if (provider === 'spark') {
-    // DGX Spark gateway speaks the OpenAI format, so the OpenAI client works with a custom baseURL.
-    requireEnv('LLM_BASE_URL', 'LLM_MODEL');
-    apiKey = process.env.LLM_API_KEY || 'not-needed';
-    baseURL = process.env.LLM_BASE_URL;
-    model = process.env.LLM_MODEL;
-  } else {
-    throw new LLMNotConfiguredError(`Unknown LLM_PROVIDER "${provider}"`);
-  }
-
-  const client = new OpenAI({ apiKey, baseURL });
+  // DGX Spark gateway speaks the OpenAI format, so the OpenAI client works with a custom baseURL.
+  const settings = config[provider];
+  const client = new OpenAI({
+    apiKey: settings.apiKey || 'not-needed',
+    baseURL: provider === 'spark' ? settings.baseURL : undefined,
+  });
   const res = await client.chat.completions.create({
-    model,
+    model: settings.model,
     max_tokens: maxTokens,
     messages: [
       { role: 'system', content: system },

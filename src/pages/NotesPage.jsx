@@ -1,11 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import PageHeader from '../components/PageHeader.jsx';
 import SplitDivider from '../components/SplitDivider.jsx';
 import { canExportNote, exportNoteAsDocx, exportNoteAsPdf } from '../lib/exportNote.js';
-import { loadNotes, writeNotes } from '../lib/notesStorage.js';
+import { describeTarget, loadNotesFrom, saveNotesTo } from '../lib/notesStorage.js';
+import {
+  chooseFolder,
+  folderPermission,
+  folderPickerSupported,
+  forgetFolder,
+  getSavedFolder,
+} from '../lib/localFolder.js';
+import { useSession } from '../lib/session.js';
+import { AuthError } from '../services/api.js';
 import { SAVE_NOTE_EVENT } from '../components/study/SummaryView.jsx';
 
-const SAVE_ERROR = 'Could not save. Browser storage is blocked or full.';
+const UNSAVED_SWITCH_WARNING =
+  'You have unsaved changes. Switching where notes are saved will discard them. Continue?';
 const EXPORT_HINT = 'Export formats: PDF / DOCX. Files download to this device.';
 
 // Split-pane limits from the Figma design notes.
@@ -43,12 +53,56 @@ function matchesSearch(note, query) {
   return note.title.toLowerCase().includes(needle) || note.content.toLowerCase().includes(needle);
 }
 
+// The folder chosen for local saves (remembered between visits) and whether we may write to it.
+function useNotesFolder() {
+  const [folder, setFolder] = useState({
+    handle: null,
+    permission: null,
+    ready: !folderPickerSupported,
+    version: 0,
+  });
+
+  useEffect(() => {
+    if (!folderPickerSupported) return;
+    let cancelled = false;
+    (async () => {
+      const handle = await getSavedFolder();
+      const permission = handle ? await folderPermission(handle).catch(() => 'denied') : null;
+      if (!cancelled) setFolder((current) => ({ ...current, handle, permission, ready: true }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const set = (handle, permission) =>
+    setFolder((current) => ({ handle, permission, ready: true, version: current.version + 1 }));
+
+  return {
+    ...folder,
+    choose: async () => {
+      const handle = await chooseFolder();
+      set(handle, await folderPermission(handle, true));
+    },
+    reconnect: async () => set(folder.handle, await folderPermission(folder.handle, true)),
+    forget: async () => {
+      await forgetFolder();
+      set(null, null);
+    },
+  };
+}
+
 export default function NotesPage() {
-  const [notes, setNotes] = useState(loadNotes);
-  const [savedNotes, setSavedNotes] = useState(notes);
-  const [selectedId, setSelectedId] = useState(notes[0]?.id ?? null);
+  const { session, setSession, signOut } = useSession();
+  const folder = useNotesFolder();
+  const [notes, setNotes] = useState([]);
+  const [savedNotes, setSavedNotes] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [loadState, setLoadState] = useState({ status: 'loading' });
+  const [reloadCount, setReloadCount] = useState(0);
   const [query, setQuery] = useState('');
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [storageMessage, setStorageMessage] = useState('');
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState(EXPORT_HINT);
@@ -59,6 +113,68 @@ export default function NotesPage() {
   const exportRef = useRef(null);
   const focusTitleOnCreate = useRef(false);
   const addNoteRef = useRef(null);
+  const savedRef = useRef(savedNotes);
+  const saveQueue = useRef(Promise.resolve());
+  const targetKeyRef = useRef(null);
+
+  const isOnline = session.mode === 'online';
+  const cloudOn = isOnline && session.saveTo === 'cloud';
+  const folderLocked = Boolean(folder.handle) && folder.permission !== 'granted';
+
+  // Where notes are read from and saved to right now.
+  const target = useMemo(() => {
+    if (cloudOn) return { kind: 'cloud', key: `cloud:${session.token}` };
+    if (folder.handle && folder.permission === 'granted') {
+      return { kind: 'folder', handle: folder.handle, key: `folder:${folder.version}` };
+    }
+    if (folder.handle) return { kind: 'locked', key: `locked:${folder.version}` };
+    return { kind: 'browser', key: 'browser' };
+  }, [cloudOn, session.token, folder.handle, folder.permission, folder.version]);
+  targetKeyRef.current = target.key;
+  const isReady = loadState.status === 'ready';
+
+  const markSaved = (list) => {
+    savedRef.current = list;
+    setSavedNotes(list);
+  };
+
+  // Load the notes whenever the save location changes.
+  useEffect(() => {
+    if (!folder.ready) return undefined;
+    let cancelled = false;
+    const show = (list, state) => {
+      setNotes(list);
+      markSaved(list);
+      setSelectedId(list[0]?.id ?? null);
+      setLoadState(state);
+      setSaveError('');
+    };
+    if (target.kind === 'locked') {
+      show([], { status: 'locked' });
+      return undefined;
+    }
+    setLoadState({ status: 'loading' });
+    loadNotesFrom(target)
+      .then((list) => {
+        if (!cancelled) show(list, { status: 'ready' });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (error instanceof AuthError) {
+          signOut();
+          return;
+        }
+        console.error(error);
+        show([], {
+          status: 'error',
+          message: `Could not load notes from ${describeTarget(target)}. ${error.message ?? ''}`.trim(),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `target` is identified by its key.
+  }, [target.key, folder.ready, reloadCount]);
 
   const selected = notes.find((note) => note.id === selectedId) ?? null;
   const savedById = new Map(savedNotes.map((note) => [note.id, note]));
@@ -70,6 +186,28 @@ export default function NotesPage() {
   };
   const hasUnsavedNotes = notes.some(isDirty);
   const exportDisabled = !canExportNote(selected) || exporting;
+  // Save lights up only when the selected note has changes to save.
+  const saveDisabled = !isReady || !selected || !isDirty(selected);
+
+  // Switching location reloads the list, so unsaved edits would be lost.
+  const confirmSwitch = () => !hasUnsavedNotes || window.confirm(UNSAVED_SWITCH_WARNING);
+
+  const toggleCloud = () => {
+    if (!isOnline || !confirmSwitch()) return;
+    setStorageMessage('');
+    setSession({ ...session, saveTo: cloudOn ? 'local' : 'cloud' });
+  };
+
+  const runFolderAction = async (action) => {
+    if (!confirmSwitch()) return;
+    setStorageMessage('');
+    try {
+      await action();
+    } catch (error) {
+      if (error?.name === 'AbortError') return; // Picker closed.
+      setStorageMessage(`Could not use that folder. ${error?.message ?? ''}`.trim());
+    }
+  };
 
   // Keep the editor at least EDITOR_MIN wide as the window resizes.
   useEffect(() => {
@@ -118,22 +256,39 @@ export default function NotesPage() {
 
   const selectNote = (id) => {
     setSelectedId(id);
-    setSaveFailed(false);
+    setSaveError('');
     setExportMenuOpen(false);
     setExportMessage(EXPORT_HINT);
   };
 
-  // Writes the given notes to storage, keeping the last saved version of any other note with unsaved edits.
+  // Writes the given notes to the current location, keeping the last saved version of any
+  // other note with unsaved edits. Saves run one at a time so they land in order.
   const persist = (workingNotes, noteIdToSave) => {
-    const next = workingNotes.map((note) =>
-      note.id === noteIdToSave ? note : (savedById.get(note.id) ?? note),
-    );
-    const ok = writeNotes(next);
-    if (ok) setSavedNotes(next);
-    setSaveFailed(!ok);
+    const saveTarget = target;
+    saveQueue.current = saveQueue.current.then(async () => {
+      if (targetKeyRef.current !== saveTarget.key) return;
+      const lastSaved = new Map(savedRef.current.map((note) => [note.id, note]));
+      const next = workingNotes.map((note) =>
+        note.id === noteIdToSave ? note : (lastSaved.get(note.id) ?? note),
+      );
+      try {
+        await saveNotesTo(saveTarget, next);
+        if (targetKeyRef.current !== saveTarget.key) return;
+        markSaved(next);
+        setSaveError('');
+      } catch (error) {
+        if (targetKeyRef.current !== saveTarget.key) return;
+        setSaveError(
+          error instanceof AuthError
+            ? 'Could not save: your session expired. Sign in again from Settings.'
+            : `Could not save to ${describeTarget(saveTarget)}. ${error?.message ?? ''}`.trim(),
+        );
+      }
+    });
   };
 
   const createNote = () => {
+    if (!isReady) return;
     const now = Date.now();
     const note = { id: crypto.randomUUID(), title: '', content: '', createdAt: now, updatedAt: now };
     const next = [note, ...notes];
@@ -148,6 +303,7 @@ export default function NotesPage() {
 
   // "Save to Notes" on the AI summary screen adds a saved note here.
   addNoteRef.current = ({ title, content }) => {
+    if (!isReady) return;
     const now = Date.now();
     const note = { id: crypto.randomUUID(), title, content, createdAt: now, updatedAt: now };
     const next = [note, ...notes];
@@ -168,6 +324,7 @@ export default function NotesPage() {
   };
 
   const saveSelected = () => {
+    if (saveDisabled) return;
     const stamped = { ...selected, updatedAt: isDirty(selected) ? Date.now() : selected.updatedAt };
     const next = notes.map((note) => (note.id === stamped.id ? stamped : note));
     setNotes(next);
@@ -192,14 +349,41 @@ export default function NotesPage() {
   };
 
   let saveStatus = 'Create a note to start writing.';
-  if (selected) {
-    if (saveFailed) saveStatus = SAVE_ERROR;
-    else if (isDirty(selected)) saveStatus = 'Unsaved changes';
-    else saveStatus = `Saved in this browser · ${formatSavedAt(selected.updatedAt)}`;
+  if (loadState.status === 'loading') saveStatus = `Loading notes from ${describeTarget(target)}...`;
+  else if (loadState.status === 'locked') saveStatus = 'Reconnect your notes folder to keep writing.';
+  else if (loadState.status === 'error') saveStatus = loadState.message;
+  else if (saveError) saveStatus = saveError;
+  else if (selected) {
+    if (isDirty(selected)) saveStatus = 'Unsaved changes';
+    else saveStatus = `Saved to ${describeTarget(target)} · ${formatSavedAt(selected.updatedAt)}`;
   }
+  const statusIsError = Boolean(saveError) || loadState.status === 'error';
+
+  let locationCaption;
+  if (!isOnline) locationCaption = 'Offline mode · cloud saves are off.';
+  else if (cloudOn) locationCaption = `Saving to your account (${session.email}).`;
+  else locationCaption = 'Saving on this computer.';
 
   let listContent;
-  if (notes.length === 0) {
+  if (loadState.status === 'loading') {
+    listContent = <p className="caption">Loading notes...</p>;
+  } else if (loadState.status === 'locked') {
+    listContent = (
+      <div className="notes-empty">
+        <div className="notes-card-title">Folder needs permission</div>
+        <div className="caption">Select Reconnect folder below to load your notes.</div>
+      </div>
+    );
+  } else if (loadState.status === 'error') {
+    listContent = (
+      <div className="notes-empty">
+        <div className="notes-card-title">Notes did not load</div>
+        <button type="button" className="text-button is-primary" onClick={() => setReloadCount((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  } else if (notes.length === 0) {
     listContent = (
       <div className="notes-empty">
         <div className="notes-card-title">No notes yet</div>
@@ -243,7 +427,12 @@ export default function NotesPage() {
           <h2 className="label" id="notes-explorer-title">
             YOUR NOTES
           </h2>
-          <button type="button" className="button button-primary notes-new" onClick={createNote}>
+          <button
+            type="button"
+            className="button button-primary notes-new"
+            disabled={!isReady}
+            onClick={createNote}
+          >
             + New Note
           </button>
           <input
@@ -256,9 +445,64 @@ export default function NotesPage() {
           />
           <div className="label notes-recent-label">RECENT NOTES</div>
           <div className="notes-list">{listContent}</div>
-          <p className="caption notes-list-footer">
-            Notes are stored in this browser only. They are not synced to an account or the cloud.
-          </p>
+          <div className="notes-storage">
+            <div className="label">SAVE LOCATION</div>
+            <label className={isOnline ? 'switch-row' : 'switch-row is-disabled'}>
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch-input"
+                checked={cloudOn}
+                disabled={!isOnline}
+                onChange={toggleCloud}
+              />
+              <span className="switch" aria-hidden="true" />
+              <span>Cloud saves</span>
+            </label>
+            <p className="caption">{locationCaption}</p>
+
+            {!cloudOn &&
+              (folderPickerSupported ? (
+                <>
+                  <p className="caption notes-folder-name">
+                    {folder.handle ? `Folder: ${folder.handle.name}` : 'Location: this browser'}
+                  </p>
+                  <div className="notes-folder-actions">
+                    {folderLocked ? (
+                      <button
+                        type="button"
+                        className="button button-secondary button-small"
+                        onClick={() => runFolderAction(folder.reconnect)}
+                      >
+                        Reconnect folder
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button button-secondary button-small"
+                        onClick={() => runFolderAction(folder.choose)}
+                      >
+                        {folder.handle ? 'Change folder' : 'Choose folder'}
+                      </button>
+                    )}
+                    {folder.handle && (
+                      <button type="button" className="text-button" onClick={() => runFolderAction(folder.forget)}>
+                        Use browser
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="caption">
+                  Saving in this browser. Choosing a save folder needs Chrome or Edge.
+                </p>
+              ))}
+            {storageMessage && (
+              <p className="caption is-error" role="alert">
+                {storageMessage}
+              </p>
+            )}
+          </div>
         </section>
 
         <SplitDivider
@@ -286,8 +530,8 @@ export default function NotesPage() {
             />
             <button
               type="button"
-              className="button button-outline button-pill"
-              disabled={!selected}
+              className="button button-primary button-pill"
+              disabled={saveDisabled}
               onClick={saveSelected}
             >
               Save
@@ -295,7 +539,7 @@ export default function NotesPage() {
             <div className="export-menu-anchor" ref={exportRef}>
               <button
                 type="button"
-                className="button button-outline button-pill"
+                className="button button-primary button-pill"
                 disabled={exportDisabled}
                 title={selected && !exporting && exportDisabled ? 'Add a title or text to export' : undefined}
                 aria-haspopup="menu"
@@ -327,7 +571,7 @@ export default function NotesPage() {
           />
 
           <p
-            className={saveFailed ? 'caption notes-save-status is-error' : 'caption notes-save-status'}
+            className={statusIsError ? 'caption notes-save-status is-error' : 'caption notes-save-status'}
             role="status"
           >
             {saveStatus}

@@ -64,7 +64,9 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
   const hasNotes = noteCharacters >= MIN_NOTE_CHARACTERS;
   const hasFormats = formats.length > 0;
   const isLoading = result.status === 'loading';
-  const canGenerate = hasNotes && hasFormats && !isLoading;
+  // A summary only needs notes; the study formats apply to quizzes alone.
+  const canSummarize = hasNotes && !isLoading;
+  const canQuiz = hasNotes && hasFormats && !isLoading;
 
   useEffect(() => {
     onBreadcrumbChange?.(BREADCRUMBS[view]);
@@ -82,11 +84,12 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
     setFormats((current) =>
       current.includes(id) ? current.filter((format) => format !== id) : [...current, id],
     );
-    resetResult();
+    // Formats only affect quizzes, so a summary result or banner stays put.
+    setResult((current) => (current.kind === 'quiz' ? IDLE : current));
   };
 
   const run = async (kind) => {
-    if (!canGenerate) return;
+    if (kind === 'summary' ? !canSummarize : !canQuiz) return;
     setResult({ status: 'loading', kind });
     try {
       if (kind === 'summary') {
@@ -134,11 +137,17 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
     return <QuizSession quiz={result.data} onBack={backToTools} />;
   }
 
-  let actionHint = 'From your notes';
-  if (isLoading) actionHint = 'Working...';
-  else if (!hasNotes && !hasFormats) actionHint = 'Add notes and select a format';
-  else if (!hasNotes) actionHint = `Add at least ${MIN_NOTE_CHARACTERS} characters of notes`;
-  else if (!hasFormats) actionHint = 'Select a study format';
+  const notesHint = `Add at least ${MIN_NOTE_CHARACTERS} characters of notes`;
+
+  let summaryHint = 'From your notes';
+  if (isLoading) summaryHint = 'Working...';
+  else if (!hasNotes) summaryHint = notesHint;
+
+  let quizHint = 'From your notes';
+  if (isLoading) quizHint = 'Working...';
+  else if (!hasNotes && !hasFormats) quizHint = 'Add notes and select a format';
+  else if (!hasNotes) quizHint = notesHint;
+  else if (!hasFormats) quizHint = 'Select a study format';
 
   const resultBanner = (kind) => {
     if (result.kind !== kind) return null;
@@ -207,12 +216,12 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
               <button
                 type="button"
                 className="button button-primary"
-                disabled={!canGenerate}
+                disabled={!canSummarize}
                 onClick={() => run('summary')}
               >
                 Generate Summary
               </button>
-              <span className="caption">{actionHint}</span>
+              <span className="caption">{summaryHint}</span>
             </div>
           </section>
           {resultBanner('summary')}
@@ -248,12 +257,12 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
               <button
                 type="button"
                 className="button button-primary"
-                disabled={!canGenerate}
+                disabled={!canQuiz}
                 onClick={() => run('quiz')}
               >
                 Generate Quiz
               </button>
-              {!canGenerate && <span className="caption">{actionHint}</span>}
+              {!canQuiz && <span className="caption">{quizHint}</span>}
             </div>
           </section>
           {resultBanner('quiz')}
