@@ -8,6 +8,12 @@ import {
   generateQuiz,
   generateSummary,
 } from '../services/studyGenerator.js';
+import {
+  QUIZ_FORMAT_DEFAULTS,
+  SETTINGS_CHANGED_EVENT,
+  hasSavedApiKey,
+  loadSettings,
+} from '../lib/settings.js';
 
 const STUDY_FORMATS = [
   { id: 'multiple-choice', label: 'Multiple Choice' },
@@ -15,12 +21,36 @@ const STUDY_FORMATS = [
   { id: 'flashcards', label: 'Flashcards' },
 ];
 
-// How many items the quiz request asks for per format (Figma: 4 MC + 2 T/F, a six-card deck).
-const FORMAT_COUNTS = { 'multiple-choice': 4, 'true-false': 2, flashcards: 6 };
-const DEFAULT_FORMATS = ['multiple-choice', 'true-false'];
+// Flashcards are always a six-card deck (Figma). Question counts come from
+// Settings › Study defaults › Questions per quiz (default 6 = 4 MC + 2 T/F).
+const FLASHCARD_COUNT = 6;
+
+function formatCounts(formats, questionsPerQuiz) {
+  const mc = formats.includes('multiple-choice');
+  const tf = formats.includes('true-false');
+  const counts = {};
+  if (mc && tf) {
+    counts['multiple-choice'] = Math.round((questionsPerQuiz * 2) / 3);
+    counts['true-false'] = questionsPerQuiz - counts['multiple-choice'];
+  } else if (mc) counts['multiple-choice'] = questionsPerQuiz;
+  else if (tf) counts['true-false'] = questionsPerQuiz;
+  if (formats.includes('flashcards')) counts.flashcards = FLASHCARD_COUNT;
+  return counts;
+}
+
+function studyDefaults() {
+  const settings = loadSettings();
+  return {
+    formats: QUIZ_FORMAT_DEFAULTS[settings.defaultQuizFormat],
+    questionsPerQuiz: settings.questionsPerQuiz,
+  };
+}
 
 // AC-6.2: at least 10 non-whitespace characters.
 const MIN_NOTE_CHARACTERS = 10;
+
+// AC-11.8: shown instead when no API key is saved in Settings.
+const ADD_KEY_COPY = 'Add your API key in Settings to enable AI generation.';
 
 // AC-6.3 banner copy.
 const NOT_CONNECTED_COPY = {
@@ -37,28 +67,36 @@ const BREADCRUMBS = {
 
 const IDLE = { status: 'idle' };
 
-function formatPlanCaption(formats) {
-  const questionParts = [];
-  let questions = 0;
-  if (formats.includes('multiple-choice')) {
-    questions += FORMAT_COUNTS['multiple-choice'];
-    questionParts.push(`${FORMAT_COUNTS['multiple-choice']} multiple choice`);
-  }
-  if (formats.includes('true-false')) {
-    questions += FORMAT_COUNTS['true-false'];
-    questionParts.push(`${FORMAT_COUNTS['true-false']} true/false`);
-  }
+function formatPlanCaption(counts) {
+  const mc = counts['multiple-choice'];
+  const tf = counts['true-false'];
+  const questionParts = [mc && `${mc} multiple choice`, tf && `${tf} true/false`].filter(Boolean);
   const parts = [];
-  if (questions > 0) parts.push(`${questions} questions`, questionParts.join(' + '));
-  if (formats.includes('flashcards')) parts.push(`${FORMAT_COUNTS.flashcards} flashcards`);
+  if (questionParts.length > 0) parts.push(`${(mc ?? 0) + (tf ?? 0)} questions`, questionParts.join(' + '));
+  if (counts.flashcards) parts.push(`${counts.flashcards} flashcards`);
   return parts.length > 0 ? parts.join(' · ') : 'Select at least one format.';
 }
 
 export default function AiStudyToolsPage({ onBreadcrumbChange }) {
   const [notes, setNotes] = useState('');
-  const [formats, setFormats] = useState(DEFAULT_FORMATS);
+  const [formats, setFormats] = useState(() => studyDefaults().formats);
+  const [questionsPerQuiz, setQuestionsPerQuiz] = useState(() => studyDefaults().questionsPerQuiz);
   const [result, setResult] = useState(IDLE);
   const [view, setView] = useState('setup');
+  const counts = formatCounts(formats, questionsPerQuiz);
+
+  // New or cleared settings: apply the study defaults and drop any old result (AC-11.9).
+  useEffect(() => {
+    const onSettingsChanged = () => {
+      const defaults = studyDefaults();
+      setFormats(defaults.formats);
+      setQuestionsPerQuiz(defaults.questionsPerQuiz);
+      setResult(IDLE);
+      setView('setup');
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+  }, []);
 
   const noteCharacters = notes.replace(/\s/g, '').length;
   const hasNotes = noteCharacters >= MIN_NOTE_CHARACTERS;
@@ -97,7 +135,6 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
         setResult({ status: 'success', kind, data });
         showView('summary');
       } else {
-        const counts = Object.fromEntries(formats.map((format) => [format, FORMAT_COUNTS[format]]));
         const data = await generateQuiz({ notes, formats, counts });
         setResult({ status: 'success', kind, data });
         showView('quiz-ready');
@@ -156,7 +193,13 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
         <div className="status-banner is-warning" role="status">
           <span className="status-banner-label">RESULTS · NOT CONNECTED</span>
           {' — '}
-          {NOT_CONNECTED_COPY[kind]}
+          {hasSavedApiKey() ? (
+            NOT_CONNECTED_COPY[kind]
+          ) : (
+            <a className="status-banner-link" href="#/settings">
+              {ADD_KEY_COPY}
+            </a>
+          )}
         </div>
       );
     }
@@ -252,7 +295,7 @@ export default function AiStudyToolsPage({ onBreadcrumbChange }) {
                 })}
               </div>
             </fieldset>
-            <p className="caption ai-format-plan">{formatPlanCaption(formats)}</p>
+            <p className="caption ai-format-plan">{formatPlanCaption(counts)}</p>
             <div className="button-row">
               <button
                 type="button"

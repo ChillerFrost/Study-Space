@@ -13,6 +13,10 @@ import {
 import { useSession } from '../lib/session.js';
 import { AuthError } from '../services/api.js';
 import { SAVE_NOTE_EVENT } from '../components/study/SummaryView.jsx';
+import { SETTINGS_CHANGED_EVENT, loadSettings } from '../lib/settings.js';
+
+// Settings › Autosave notes: save this long after the last edit.
+const AUTOSAVE_DELAY_MS = 1000;
 
 const UNSAVED_SWITCH_WARNING =
   'You have unsaved changes. Switching where notes are saved will discard them. Continue?';
@@ -98,6 +102,14 @@ export default function NotesPage() {
   const [notes, setNotes] = useState([]);
   const [savedNotes, setSavedNotes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [autosave, setAutosave] = useState(() => loadSettings().autosaveNotes);
+  const saveSelectedRef = useRef(null);
+
+  useEffect(() => {
+    const onSettingsChanged = () => setAutosave(loadSettings().autosaveNotes);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+  }, []);
   const [loadState, setLoadState] = useState({ status: 'loading' });
   const [reloadCount, setReloadCount] = useState(0);
   const [query, setQuery] = useState('');
@@ -330,6 +342,16 @@ export default function NotesPage() {
     setNotes(next);
     persist(next, stamped.id);
   };
+
+  saveSelectedRef.current = saveSelected;
+
+  // Autosave: a pause in typing saves the selected note.
+  const autosavePending = autosave && !saveDisabled;
+  useEffect(() => {
+    if (!autosavePending) return undefined;
+    const timer = setTimeout(() => saveSelectedRef.current(), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [autosavePending, selected?.title, selected?.content]);
 
   const runExport = async (exportNote) => {
     setExportMenuOpen(false);
