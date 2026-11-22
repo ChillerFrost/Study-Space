@@ -4,9 +4,10 @@ import { sessionToken } from '../lib/session.js';
 import { settingsHeaders } from '../lib/settings.js';
 
 export class NotConnectedError extends Error {
-  constructor(message = 'Service is not connected.') {
+  constructor(message = 'Service is not connected.', status = null) {
     super(message);
     this.name = 'NotConnectedError';
+    this.status = status;
   }
 }
 
@@ -28,8 +29,9 @@ export async function fetchConnectionStatus() {
   }
 }
 
-export async function apiRequest(path, { method = 'GET', body } = {}) {
-  const headers = { ...settingsHeaders() };
+// `headers` adds to or replaces the saved-settings headers for this one request.
+export async function apiRequest(path, { method = 'GET', body, headers: extraHeaders } = {}) {
+  const headers = { ...settingsHeaders(), ...extraHeaders };
   const token = sessionToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body) headers['Content-Type'] = 'application/json';
@@ -51,7 +53,7 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
   // 503 = server is up but the provider isn't configured. Vite's proxy answers 500/502/504
   // with an empty body when the API server is down, which also means "not connected".
   if (res.status === 503 || (!res.ok && data === null)) {
-    throw new NotConnectedError(data?.error);
+    throw new NotConnectedError(data?.error, res.status);
   }
   if (res.status === 401) throw new AuthError(data?.error);
   if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);

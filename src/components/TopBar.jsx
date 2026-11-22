@@ -1,6 +1,6 @@
 export default function TopBar({ section, detail }) {
-  // The Figma Notes and AI Study Tools frames have no route label in the top bar; Canvas does.
-  const showRoute = section.id === 'canvas';
+  // The Figma Notes and AI Study Tools frames have no route label in the top bar; Canvas and Settings do.
+  const showRoute = section.id === 'canvas' || section.id === 'settings';
 
   return (
     <header className="topbar">
